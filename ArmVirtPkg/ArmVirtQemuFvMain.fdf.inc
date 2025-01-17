@@ -71,10 +71,11 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
-  INF ArmPkg/Drivers/ArmGic/ArmGicDxe.inf
+  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
   INF OvmfPkg/VirtNorFlashDxe/VirtNorFlashDxe.inf
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
+  INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
 
   #
   # FAT filesystem + GPT/MBR partitioning + UDF filesystem + virtio-fs
@@ -100,11 +101,7 @@ READ_LOCK_STATUS   = TRUE
   INF OvmfPkg/VirtioRngDxe/VirtioRng.inf
   INF OvmfPkg/VirtioSerialDxe/VirtioSerial.inf
 
-  INF ShellPkg/Application/Shell/Shell.inf
-  INF ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf
-  INF ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf
-  INF ShellPkg/DynamicCommand/VariablePolicyDynamicCommand/VariablePolicyDynamicCommand.inf
-  INF OvmfPkg/LinuxInitrdDynamicShellCommand/LinuxInitrdDynamicShellCommand.inf
+!include OvmfPkg/Include/Fdf/ShellDxe.fdf.inc
 
   #
   # Bds
@@ -176,6 +173,11 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf
   INF MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf
+
+  #
+  # Hash2 Protocol producer
+  #
+  INF SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf
 
   #
   # TPM2 support

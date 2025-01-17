@@ -20,17 +20,17 @@
 **/
 VOID
 PageTableLibSetPte4K (
-  IN IA32_PTE_4K         *Pte4K,
-  IN UINT64              Offset,
-  IN IA32_MAP_ATTRIBUTE  *Attribute,
-  IN IA32_MAP_ATTRIBUTE  *Mask
+  IN OUT volatile IA32_PTE_4K  *Pte4K,
+  IN UINT64                    Offset,
+  IN IA32_MAP_ATTRIBUTE        *Attribute,
+  IN IA32_MAP_ATTRIBUTE        *Mask
   )
 {
   IA32_PTE_4K  LocalPte4K;
 
   LocalPte4K.Uint64 = Pte4K->Uint64;
   if (Mask->Bits.PageTableBaseAddressLow || Mask->Bits.PageTableBaseAddressHigh) {
-    LocalPte4K.Uint64 = (IA32_MAP_ATTRIBUTE_PAGE_TABLE_BASE_ADDRESS (Attribute) + Offset) | (Pte4K->Uint64 & ~IA32_PE_BASE_ADDRESS_MASK_40);
+    LocalPte4K.Uint64 = (IA32_MAP_ATTRIBUTE_PAGE_TABLE_BASE_ADDRESS (Attribute) + Offset) | (LocalPte4K.Uint64 & ~IA32_PE_BASE_ADDRESS_MASK_40);
   }
 
   if (Mask->Bits.Present) {
@@ -94,17 +94,17 @@ PageTableLibSetPte4K (
 **/
 VOID
 PageTableLibSetPleB (
-  IN IA32_PAGE_LEAF_ENTRY_BIG_PAGESIZE  *PleB,
-  IN UINT64                             Offset,
-  IN IA32_MAP_ATTRIBUTE                 *Attribute,
-  IN IA32_MAP_ATTRIBUTE                 *Mask
+  IN OUT volatile IA32_PAGE_LEAF_ENTRY_BIG_PAGESIZE  *PleB,
+  IN UINT64                                          Offset,
+  IN IA32_MAP_ATTRIBUTE                              *Attribute,
+  IN IA32_MAP_ATTRIBUTE                              *Mask
   )
 {
   IA32_PAGE_LEAF_ENTRY_BIG_PAGESIZE  LocalPleB;
 
   LocalPleB.Uint64 = PleB->Uint64;
   if (Mask->Bits.PageTableBaseAddressLow || Mask->Bits.PageTableBaseAddressHigh) {
-    LocalPleB.Uint64 = (IA32_MAP_ATTRIBUTE_PAGE_TABLE_BASE_ADDRESS (Attribute) + Offset) | (PleB->Uint64 & ~IA32_PE_BASE_ADDRESS_MASK_39);
+    LocalPleB.Uint64 = (IA32_MAP_ATTRIBUTE_PAGE_TABLE_BASE_ADDRESS (Attribute) + Offset) | (LocalPleB.Uint64 & ~IA32_PE_BASE_ADDRESS_MASK_39);
   }
 
   LocalPleB.Bits.MustBeOne = 1;
@@ -171,11 +171,11 @@ PageTableLibSetPleB (
 **/
 VOID
 PageTableLibSetPle (
-  IN UINTN               Level,
-  IN IA32_PAGING_ENTRY   *Ple,
-  IN UINT64              Offset,
-  IN IA32_MAP_ATTRIBUTE  *Attribute,
-  IN IA32_MAP_ATTRIBUTE  *Mask
+  IN UINTN                           Level,
+  IN OUT volatile IA32_PAGING_ENTRY  *Ple,
+  IN UINT64                          Offset,
+  IN IA32_MAP_ATTRIBUTE              *Attribute,
+  IN IA32_MAP_ATTRIBUTE              *Mask
   )
 {
   if (Level == 1) {
@@ -195,9 +195,9 @@ PageTableLibSetPle (
 **/
 VOID
 PageTableLibSetPnle (
-  IN IA32_PAGE_NON_LEAF_ENTRY  *Pnle,
-  IN IA32_MAP_ATTRIBUTE        *Attribute,
-  IN IA32_MAP_ATTRIBUTE        *Mask
+  IN OUT volatile IA32_PAGE_NON_LEAF_ENTRY  *Pnle,
+  IN IA32_MAP_ATTRIBUTE                     *Attribute,
+  IN IA32_MAP_ATTRIBUTE                     *Mask
   )
 {
   IA32_PAGE_NON_LEAF_ENTRY  LocalPnle;
@@ -342,6 +342,7 @@ PageTableLibMapInLevel (
   UINT64              PhysicalAddrInAttr;
   IA32_PAGING_ENTRY   OriginalParentPagingEntry;
   IA32_PAGING_ENTRY   OriginalCurrentPagingEntry;
+  IA32_PAGING_ENTRY   TempPagingEntry;
 
   ASSERT (Level != 0);
   ASSERT ((Attribute != NULL) && (Mask != NULL));
@@ -359,6 +360,8 @@ PageTableLibMapInLevel (
 
   OriginalParentPagingEntry.Uint64 = ParentPagingEntry->Uint64;
   OneOfPagingEntry.Uint64          = 0;
+  TempPagingEntry.Uint64           = 0;
+
   //
   // RegionLength: 256T (1 << 48) 512G (1 << 39), 1G (1 << 30), 2M (1 << 21) or 4K (1 << 12).
   //
@@ -441,8 +444,10 @@ PageTableLibMapInLevel (
       // Non-leaf entry doesn't have PAT bit. So use ~IA32_PE_BASE_ADDRESS_MASK_40 is to make sure PAT bit
       // (bit12) in original big-leaf entry is not assigned to PageTableBaseAddress field of non-leaf entry.
       //
-      PageTableLibSetPnle (&ParentPagingEntry->Pnle, &NopAttribute, &AllOneMask);
-      ParentPagingEntry->Uint64 = ((UINTN)(VOID *)PagingEntry) | (ParentPagingEntry->Uint64 & (~IA32_PE_BASE_ADDRESS_MASK_40));
+      TempPagingEntry.Uint64 = ParentPagingEntry->Uint64;
+      PageTableLibSetPnle (&TempPagingEntry.Pnle, &NopAttribute, &AllOneMask);
+      TempPagingEntry.Uint64                           = ((UINTN)(VOID *)PagingEntry) | (TempPagingEntry.Uint64 & (~IA32_PE_BASE_ADDRESS_MASK_40));
+      *(volatile UINT64 *)&(ParentPagingEntry->Uint64) = TempPagingEntry.Uint64;
     }
   } else {
     //

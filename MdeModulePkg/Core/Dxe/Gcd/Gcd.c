@@ -8,8 +8,8 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
 
-#include <Pi/PrePiDxeCis.h>
-#include <Pi/PrePiHob.h>
+#include <Pi/PiDxeCis.h>
+#include <Pi/PiHob.h>
 #include "DxeMain.h"
 #include "Gcd.h"
 #include "Mem/HeapGuard.h"
@@ -92,6 +92,7 @@ GCD_ATTRIBUTE_CONVERSION_ENTRY  mAttributeConversionTable[] = {
   { EFI_RESOURCE_ATTRIBUTE_TESTED,                  EFI_MEMORY_TESTED,        FALSE },
   { EFI_RESOURCE_ATTRIBUTE_PERSISTABLE,             EFI_MEMORY_NV,            TRUE  },
   { EFI_RESOURCE_ATTRIBUTE_MORE_RELIABLE,           EFI_MEMORY_MORE_RELIABLE, TRUE  },
+  { EFI_RESOURCE_ATTRIBUTE_SPECIAL_PURPOSE,         EFI_MEMORY_SP,            TRUE  },
   { 0,                                              0,                        FALSE }
 };
 
@@ -105,7 +106,7 @@ GLOBAL_REMOVE_IF_UNREFERENCED CONST CHAR8  *mGcdMemoryTypeNames[] = {
   "MMIO     ",  // EfiGcdMemoryTypeMemoryMappedIo
   "PersisMem",  // EfiGcdMemoryTypePersistent
   "MoreRelia",  // EfiGcdMemoryTypeMoreReliable
-  "Unaccepte",  // EFI_GCD_MEMORY_TYPE_UNACCEPTED
+  "Unaccepte",  // EfiGcdMemoryTypeUnaccepted
   "Unknown  "   // EfiGcdMemoryTypeMaximum
 };
 
@@ -988,6 +989,20 @@ CoreConvertSpace (
       //
       case GCD_SET_CAPABILITIES_MEMORY_OPERATION:
         Entry->Capabilities = Capabilities;
+
+        // Only SystemMemory and MoreReliable memory is in gMemoryMap
+        // so only attempt to update the attributes there if this is
+        // a relevant GCD type
+        if ((Entry->GcdMemoryType == EfiGcdMemoryTypeSystemMemory) ||
+            (Entry->GcdMemoryType == EfiGcdMemoryTypeMoreReliable))
+        {
+          CoreUpdateMemoryAttributes (
+            BaseAddress,
+            RShiftU64 (Length, EFI_PAGE_SHIFT),
+            Capabilities & (~EFI_MEMORY_RUNTIME)
+            );
+        }
+
         break;
     }
 
@@ -1699,17 +1714,10 @@ CoreSetMemorySpaceCapabilities (
   IN UINT64                Capabilities
   )
 {
-  EFI_STATUS  Status;
-
   DEBUG ((DEBUG_GCD, "GCD:CoreSetMemorySpaceCapabilities(Base=%016lx,Length=%016lx)\n", BaseAddress, Length));
   DEBUG ((DEBUG_GCD, "  Capabilities  = %016lx\n", Capabilities));
 
-  Status = CoreConvertSpace (GCD_SET_CAPABILITIES_MEMORY_OPERATION, (EFI_GCD_MEMORY_TYPE)0, (EFI_GCD_IO_TYPE)0, BaseAddress, Length, Capabilities, 0);
-  if (!EFI_ERROR (Status)) {
-    CoreUpdateMemoryAttributes (BaseAddress, RShiftU64 (Length, EFI_PAGE_SHIFT), Capabilities & (~EFI_MEMORY_RUNTIME));
-  }
-
-  return Status;
+  return CoreConvertSpace (GCD_SET_CAPABILITIES_MEMORY_OPERATION, (EFI_GCD_MEMORY_TYPE)0, (EFI_GCD_IO_TYPE)0, BaseAddress, Length, Capabilities, 0);
 }
 
 /**
@@ -2669,8 +2677,8 @@ CoreInitializeGcdServices (
         case EFI_RESOURCE_MEMORY_RESERVED:
           GcdMemoryType = EfiGcdMemoryTypeReserved;
           break;
-        case BZ3937_EFI_RESOURCE_MEMORY_UNACCEPTED:
-          GcdMemoryType = EFI_GCD_MEMORY_TYPE_UNACCEPTED;
+        case EFI_RESOURCE_MEMORY_UNACCEPTED:
+          GcdMemoryType = EfiGcdMemoryTypeUnaccepted;
           break;
         case EFI_RESOURCE_IO:
           GcdIoType = EfiGcdIoTypeIo;

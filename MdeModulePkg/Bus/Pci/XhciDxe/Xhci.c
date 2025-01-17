@@ -825,7 +825,10 @@ XhcTransfer (
   *TransferResult = Urb->Result;
   *DataLength     = Urb->Completed;
 
-  if ((*TransferResult == EFI_USB_ERR_STALL) || (*TransferResult == EFI_USB_ERR_BABBLE)) {
+  //
+  // Based on XHCI spec 4.8.3, software should do the reset endpoint while USB Transaction occur.
+  //
+  if ((*TransferResult == EFI_USB_ERR_STALL) || (*TransferResult == EFI_USB_ERR_BABBLE) || (*TransferResult == EDKII_USB_ERR_TRANSACTION)) {
     ASSERT (Status == EFI_DEVICE_ERROR);
     RecoveryStatus = XhcRecoverHaltedEndpoint (Xhc, Urb);
     if (EFI_ERROR (RecoveryStatus)) {
@@ -2074,7 +2077,12 @@ XhcDriverBindingStart (
 
   XhcSetBiosOwnership (Xhc);
 
-  XhcResetHC (Xhc, XHC_RESET_TIMEOUT);
+  Status = XhcResetHC (Xhc, XHC_RESET_TIMEOUT);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "%a: failed to reset HC\n", __func__));
+    goto FREE_POOL;
+  }
+
   ASSERT (XhcIsHalt (Xhc));
 
   //
@@ -2389,7 +2397,7 @@ XhcGetElapsedTicks (
     // Counter counts upwards, check for an overflow condition
     //
     if (*PreviousTick > CurrentTick) {
-      Delta = (mXhciPerformanceCounterEndValue - *PreviousTick) + CurrentTick;
+      Delta = (CurrentTick - mXhciPerformanceCounterStartValue) + (mXhciPerformanceCounterEndValue - *PreviousTick);
     } else {
       Delta = CurrentTick - *PreviousTick;
     }
@@ -2398,7 +2406,7 @@ XhcGetElapsedTicks (
     // Counter counts downwards, check for an underflow condition
     //
     if (*PreviousTick < CurrentTick) {
-      Delta = (mXhciPerformanceCounterStartValue - CurrentTick) + *PreviousTick;
+      Delta = (mXhciPerformanceCounterStartValue - CurrentTick) + (*PreviousTick - mXhciPerformanceCounterEndValue);
     } else {
       Delta = *PreviousTick - CurrentTick;
     }

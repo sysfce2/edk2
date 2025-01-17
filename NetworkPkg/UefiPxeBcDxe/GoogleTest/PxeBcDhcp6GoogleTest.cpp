@@ -7,6 +7,8 @@
 #include <Library/GoogleTestLib.h>
 #include <GoogleTest/Library/MockUefiLib.h>
 #include <GoogleTest/Library/MockUefiRuntimeServicesTableLib.h>
+#include <GoogleTest/Library/MockUefiBootServicesTableLib.h>
+#include <GoogleTest/Protocol/MockRng.h>
 
 extern "C" {
   #include <Uefi.h>
@@ -165,7 +167,7 @@ protected:
 // Note:
 // Testing PxeBcHandleDhcp6Offer() is difficult because it depends on a
 // properly setup Private structure. Attempting to properly test this function
-// without a signficant refactor is a fools errand. Instead, we will test
+// without a significant refactor is a fools errand. Instead, we will test
 // that we can prevent an overflow in the function.
 TEST_F (PxeBcHandleDhcp6OfferTest, BasicUsageTest) {
   PXEBC_DHCP6_PACKET_CACHE  *Cache6 = NULL;
@@ -238,6 +240,7 @@ TEST_F (PxeBcCacheDnsServerAddressesTest, BasicUsageTest) {
     FreePool (Option);
   }
 }
+
 // Test Description
 // Test that we can prevent an overflow in the function
 TEST_F (PxeBcCacheDnsServerAddressesTest, AttemptOverflowTest) {
@@ -287,14 +290,8 @@ TEST_F (PxeBcCacheDnsServerAddressesTest, AttemptUnderflowTest) {
 // Test Description
 // Test that we can handle recursive dns (multiple dns entries)
 TEST_F (PxeBcCacheDnsServerAddressesTest, MultipleDnsEntries) {
-  EFI_DHCP6_PACKET_OPTION   Option  = { 0 };
+  EFI_DHCP6_PACKET_OPTION   *Option = NULL;
   PXEBC_DHCP6_PACKET_CACHE  *Cache6 = NULL;
-
-  Private.SelectIndex                         = 1; // SelectIndex is 1-based
-  Cache6                                      = &Private.OfferBuffer[Private.SelectIndex - 1].Dhcp6;
-  Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER] = &Option;
-  // Setup the DHCPv6 offer packet
-  Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER]->OpCode = DHCP6_OPT_SERVER_ID;
 
   EFI_IPv6_ADDRESS  addresses[2] = {
     // 2001:db8:85a3::8a2e:370:7334
@@ -303,7 +300,18 @@ TEST_F (PxeBcCacheDnsServerAddressesTest, MultipleDnsEntries) {
     { 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd4, 0x78, 0x91, 0xc3, 0xec, 0xd7, 0x4f, 0xf9 }
   };
 
-  CopyMem (Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER]->Data, &addresses, sizeof (addresses));
+  Option = (EFI_DHCP6_PACKET_OPTION *)AllocatePool (sizeof (*Option) + sizeof (addresses));
+  if (Option == NULL) {
+    ASSERT_NE (Option, nullptr);
+  }
+
+  Private.SelectIndex                         = 1; // SelectIndex is 1-based
+  Cache6                                      = &Private.OfferBuffer[Private.SelectIndex - 1].Dhcp6;
+  Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER] = Option;
+  // Setup the DHCPv6 offer packet
+  Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER]->OpCode = DHCP6_OPT_SERVER_ID;
+
+  CopyMem (Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER]->Data, addresses, sizeof (addresses));
 
   Cache6->OptList[PXEBC_DHCP6_IDX_DNS_SERVER]->OpLen = NTOHS (sizeof (addresses));
 
@@ -323,6 +331,10 @@ TEST_F (PxeBcCacheDnsServerAddressesTest, MultipleDnsEntries) {
 
   if (Private.DnsServer) {
     FreePool (Private.DnsServer);
+  }
+
+  if (Option) {
+    FreePool (Option);
   }
 }
 
@@ -470,10 +482,15 @@ TEST_F (PxeBcRequestBootServiceTest, AttemptRequestOverFlowExpectFailure) {
 class PxeBcDhcp6DiscoverTest : public ::testing::Test {
 public:
   PXEBC_PRIVATE_DATA Private = { 0 };
+  // create a mock md5 hash
+  UINT8 Md5Hash[16] = { 0 };
+
   EFI_UDP6_PROTOCOL Udp6Read;
 
 protected:
   MockUefiRuntimeServicesTableLib RtServicesMock;
+  MockUefiBootServicesTableLib BsMock;
+  MockRng RngMock;
 
   // Add any setup code if needed
   virtual void
@@ -527,8 +544,21 @@ TEST_F (PxeBcDhcp6DiscoverTest, BasicOverflowTest) {
 
   Private.Dhcp6Request->Length = (UINT16)(Cursor - (UINT8 *)Private.Dhcp6Request);
 
-  EXPECT_CALL (RtServicesMock, gRT_GetTime)
-    .WillOnce (::testing::Return (0));
+  EXPECT_CALL (BsMock, gBS_LocateProtocol)
+    .WillOnce (
+       ::testing::DoAll (
+                    ::testing::SetArgPointee<2> (::testing::ByRef (gRngProtocol)),
+                    ::testing::Return (EFI_SUCCESS)
+                    )
+       );
+
+  EXPECT_CALL (RngMock, GetRng)
+    .WillOnce (
+       ::testing::DoAll (
+                    ::testing::SetArgPointee<3> (::testing::ByRef (Md5Hash[0])),
+                    ::testing::Return (EFI_SUCCESS)
+                    )
+       );
 
   ASSERT_EQ (
     PxeBcDhcp6Discover (
@@ -558,8 +588,21 @@ TEST_F (PxeBcDhcp6DiscoverTest, BasicUsageTest) {
 
   Private.Dhcp6Request->Length = (UINT16)(Cursor - (UINT8 *)Private.Dhcp6Request);
 
-  EXPECT_CALL (RtServicesMock, gRT_GetTime)
-    .WillOnce (::testing::Return (0));
+  EXPECT_CALL (BsMock, gBS_LocateProtocol)
+    .WillOnce (
+       ::testing::DoAll (
+                    ::testing::SetArgPointee<2> (::testing::ByRef (gRngProtocol)),
+                    ::testing::Return (EFI_SUCCESS)
+                    )
+       );
+
+  EXPECT_CALL (RngMock, GetRng)
+    .WillOnce (
+       ::testing::DoAll (
+                    ::testing::SetArgPointee<3> (::testing::ByRef (Md5Hash[0])),
+                    ::testing::Return (EFI_SUCCESS)
+                    )
+       );
 
   ASSERT_EQ (
     PxeBcDhcp6Discover (
@@ -570,5 +613,63 @@ TEST_F (PxeBcDhcp6DiscoverTest, BasicUsageTest) {
       (EFI_IP_ADDRESS *)&DestIp
       ),
     EFI_SUCCESS
+    );
+}
+
+TEST_F (PxeBcDhcp6DiscoverTest, MultipleRequestsAttemptOverflow) {
+  EFI_IPv6_ADDRESS         DestIp     = { 0 };
+  EFI_DHCP6_PACKET_OPTION  RequestOpt = { 0 }; // the data section doesn't really matter
+
+  RequestOpt.OpCode = HTONS (0x1337);
+  RequestOpt.OpLen  = HTONS (REQUEST_OPTION_LENGTH); // this length would overflow without a check
+  UINT8  RequestOptBuffer[REQUEST_OPTION_LENGTH] = { 0 };
+
+  // make sure we have enough space for 10 of these options
+  ASSERT_TRUE (REQUEST_OPTION_LENGTH * 10 <= PACKET_SIZE);
+
+  UINT8             Index   = 0;
+  EFI_DHCP6_PACKET  *Packet = (EFI_DHCP6_PACKET *)&Private.Dhcp6Request[Index];
+  UINT8             *Cursor = (UINT8 *)(Packet->Dhcp6.Option);
+
+  // let's add 10 of these options - this should overflow
+  for (UINT8 i = 0; i < 10; i++) {
+    CopyMem (Cursor, &RequestOpt, sizeof (RequestOpt));
+    Cursor += sizeof (RequestOpt) - 1;
+    CopyMem (Cursor, RequestOptBuffer, REQUEST_OPTION_LENGTH);
+    Cursor += REQUEST_OPTION_LENGTH;
+  }
+
+  // Update the packet length
+  Packet->Length = (UINT16)(Cursor - (UINT8 *)Packet);
+  Packet->Size   = PACKET_SIZE;
+
+  // Make sure we're larger than the buffer we're trying to write into
+  ASSERT_TRUE (Packet->Length > sizeof (EFI_PXE_BASE_CODE_DHCPV6_PACKET));
+
+  EXPECT_CALL (BsMock, gBS_LocateProtocol)
+    .WillOnce (
+       ::testing::DoAll (
+                    ::testing::SetArgPointee<2> (::testing::ByRef (gRngProtocol)),
+                    ::testing::Return (EFI_SUCCESS)
+                    )
+       );
+
+  EXPECT_CALL (RngMock, GetRng)
+    .WillOnce (
+       ::testing::DoAll (
+                    ::testing::SetArgPointee<3> (::testing::ByRef (Md5Hash[0])),
+                    ::testing::Return (EFI_SUCCESS)
+                    )
+       );
+
+  ASSERT_EQ (
+    PxeBcDhcp6Discover (
+      &(PxeBcDhcp6DiscoverTest::Private),
+      0,
+      NULL,
+      FALSE,
+      (EFI_IP_ADDRESS *)&DestIp
+      ),
+    EFI_OUT_OF_RESOURCES
     );
 }
